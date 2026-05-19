@@ -1,0 +1,764 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Orders · Live Feed</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:ital,wght@0,300;0,400;0,500;0,600;1,400&family=IBM+Plex+Sans:wght@300;400;500;600&display=swap" rel="stylesheet" />
+  <script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
+
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg:         #0a0c0f;
+      --panel:      #0f1318;
+      --border:     #1c2230;
+      --border-dim: #141820;
+      --text:       #c8d3e8;
+      --text-dim:   #4a5878;
+      --text-muted: #2a3348;
+      --accent:     #00d4ff;
+      --accent-dim: #003d4d;
+      --green:      #00e676;
+      --green-dim:  #003318;
+      --amber:      #ffab40;
+      --amber-dim:  #3d2800;
+      --red:        #ff4d4d;
+      --red-dim:    #3d0000;
+      --purple:     #b388ff;
+      --scan-line:  rgba(0, 212, 255, 0.03);
+    }
+
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: 'IBM Plex Mono', monospace;
+      font-size: 13px;
+      line-height: 1.6;
+      min-height: 100vh;
+      overflow-x: hidden;
+    }
+
+    /* CRT scan lines overlay */
+    body::before {
+      content: '';
+      position: fixed;
+      inset: 0;
+      background: repeating-linear-gradient(
+        0deg,
+        transparent,
+        transparent 2px,
+        var(--scan-line) 2px,
+        var(--scan-line) 4px
+      );
+      pointer-events: none;
+      z-index: 9999;
+    }
+
+    /* ── Layout ───────────────────────────────────────── */
+    .shell {
+      display: grid;
+      grid-template-rows: auto 1fr;
+      grid-template-columns: 260px 1fr;
+      grid-template-areas:
+        "header header"
+        "sidebar main";
+      height: 100vh;
+    }
+
+    /* ── Header ──────────────────────────────────────── */
+    header {
+      grid-area: header;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 14px 24px;
+      border-bottom: 1px solid var(--border);
+      background: var(--panel);
+      position: relative;
+      overflow: hidden;
+    }
+    header::after {
+      content: '';
+      position: absolute;
+      bottom: 0; left: 0; right: 0;
+      height: 1px;
+      background: linear-gradient(90deg, transparent, var(--accent), transparent);
+      opacity: 0.4;
+    }
+
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+    .brand-icon {
+      width: 32px; height: 32px;
+      border: 1px solid var(--accent);
+      border-radius: 4px;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 16px;
+      box-shadow: 0 0 12px rgba(0,212,255,0.2);
+      position: relative;
+      overflow: hidden;
+    }
+    .brand-icon::before {
+      content: '';
+      position: absolute;
+      inset: 0;
+      background: linear-gradient(135deg, rgba(0,212,255,0.15), transparent);
+    }
+    .brand-name {
+      font-family: 'IBM Plex Mono', monospace;
+      font-size: 14px;
+      font-weight: 600;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+      color: var(--accent);
+    }
+    .brand-sub {
+      font-size: 10px;
+      color: var(--text-dim);
+      letter-spacing: 0.08em;
+    }
+
+    .header-right {
+      display: flex;
+      align-items: center;
+      gap: 24px;
+    }
+
+    .conn-badge {
+      display: flex;
+      align-items: center;
+      gap: 7px;
+      padding: 5px 12px;
+      border: 1px solid var(--border);
+      border-radius: 3px;
+      font-size: 11px;
+      letter-spacing: 0.06em;
+      transition: all 0.3s ease;
+    }
+    .conn-badge.connected { border-color: var(--green); color: var(--green); }
+    .conn-badge.connecting { border-color: var(--amber); color: var(--amber); }
+    .conn-badge.disconnected { border-color: var(--red); color: var(--red); }
+
+    .conn-dot {
+      width: 6px; height: 6px;
+      border-radius: 50%;
+      background: currentColor;
+    }
+    .conn-badge.connected .conn-dot { animation: pulse-dot 2s ease-in-out infinite; }
+    @keyframes pulse-dot {
+      0%,100% { opacity: 1; box-shadow: 0 0 0 0 currentColor; }
+      50% { opacity: 0.7; box-shadow: 0 0 4px 2px rgba(0,230,118,0.3); }
+    }
+
+    .clock {
+      font-size: 11px;
+      color: var(--text-dim);
+      letter-spacing: 0.06em;
+      font-variant-numeric: tabular-nums;
+    }
+
+    /* ── Sidebar ─────────────────────────────────────── */
+    aside {
+      grid-area: sidebar;
+      border-right: 1px solid var(--border);
+      background: var(--panel);
+      padding: 20px 0;
+      display: flex;
+      flex-direction: column;
+      gap: 0;
+      overflow-y: auto;
+    }
+
+    .sidebar-section {
+      padding: 0 20px 20px;
+      border-bottom: 1px solid var(--border-dim);
+      margin-bottom: 0;
+    }
+    .sidebar-section:last-child { border-bottom: none; }
+
+    .section-label {
+      font-size: 10px;
+      letter-spacing: 0.14em;
+      text-transform: uppercase;
+      color: var(--text-muted);
+      margin-bottom: 12px;
+      padding-top: 20px;
+    }
+
+    /* Stats grid */
+    .stats-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 8px;
+    }
+    .stat-card {
+      padding: 10px;
+      border: 1px solid var(--border);
+      border-radius: 4px;
+      background: var(--bg);
+    }
+    .stat-val {
+      font-size: 22px;
+      font-weight: 600;
+      font-variant-numeric: tabular-nums;
+      line-height: 1;
+      margin-bottom: 4px;
+      transition: color 0.3s ease;
+    }
+    .stat-label {
+      font-size: 9px;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+      color: var(--text-dim);
+    }
+
+    .stat-total    { color: var(--accent); }
+    .stat-pending  { color: var(--amber); }
+    .stat-shipped  { color: var(--purple); }
+    .stat-delivered{ color: var(--green); }
+
+    /* Filter pills */
+    .filter-group {
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+    }
+    .filter-btn {
+      padding: 7px 12px;
+      border: 1px solid var(--border);
+      border-radius: 3px;
+      background: transparent;
+      color: var(--text-dim);
+      font-family: 'IBM Plex Mono', monospace;
+      font-size: 11px;
+      letter-spacing: 0.06em;
+      cursor: pointer;
+      text-align: left;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      transition: all 0.2s ease;
+    }
+    .filter-btn:hover { border-color: var(--accent); color: var(--accent); background: var(--accent-dim); }
+    .filter-btn.active { border-color: var(--accent); color: var(--accent); background: var(--accent-dim); }
+
+    /* Instance info */
+    .instance-info {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+    .info-row {
+      display: flex;
+      justify-content: space-between;
+      font-size: 11px;
+    }
+    .info-key { color: var(--text-dim); }
+    .info-val { color: var(--text); font-variant-numeric: tabular-nums; }
+
+    /* ── Main area ────────────────────────────────────── */
+    main {
+      grid-area: main;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+
+    .main-toolbar {
+      padding: 12px 20px;
+      border-bottom: 1px solid var(--border);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+    .toolbar-title {
+      font-size: 11px;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+      color: var(--text-dim);
+    }
+    .toolbar-actions { display: flex; gap: 8px; }
+    .btn {
+      padding: 5px 12px;
+      border: 1px solid var(--border);
+      border-radius: 3px;
+      background: transparent;
+      color: var(--text-dim);
+      font-family: 'IBM Plex Mono', monospace;
+      font-size: 11px;
+      cursor: pointer;
+      transition: all 0.2s ease;
+    }
+    .btn:hover { border-color: var(--accent); color: var(--accent); }
+    .btn.danger:hover { border-color: var(--red); color: var(--red); }
+
+    /* Events log */
+    #events-log {
+      flex: 1;
+      overflow-y: auto;
+      padding: 0;
+      display: flex;
+      flex-direction: column-reverse; /* newest at top */
+    }
+
+    /* ── Event card ──────────────────────────────────── */
+    .event-card {
+      padding: 14px 20px;
+      border-bottom: 1px solid var(--border-dim);
+      display: grid;
+      grid-template-columns: 80px 60px 1fr auto;
+      align-items: start;
+      gap: 16px;
+      animation: slide-in 0.3s ease-out;
+      transition: background 0.2s;
+    }
+    .event-card:hover { background: rgba(0,212,255,0.03); }
+
+    @keyframes slide-in {
+      from { opacity: 0; transform: translateY(-8px); }
+      to   { opacity: 1; transform: translateY(0); }
+    }
+
+    .event-card.new-flash {
+      animation: slide-in 0.3s ease-out, flash-new 0.8s ease-out;
+    }
+    @keyframes flash-new {
+      0%   { background: rgba(0,212,255,0.12); }
+      100% { background: transparent; }
+    }
+
+    .op-badge {
+      font-size: 10px;
+      font-weight: 600;
+      letter-spacing: 0.1em;
+      padding: 3px 8px;
+      border-radius: 2px;
+      text-align: center;
+      border: 1px solid;
+    }
+    .op-INSERT   { color: var(--green);  border-color: var(--green);  background: var(--green-dim); }
+    .op-UPDATE   { color: var(--amber);  border-color: var(--amber);  background: var(--amber-dim); }
+    .op-DELETE   { color: var(--red);    border-color: var(--red);    background: var(--red-dim); }
+    .op-SNAPSHOT { color: var(--purple); border-color: var(--purple); background: rgba(179,136,255,0.08); }
+
+    .event-id {
+      font-size: 11px;
+      color: var(--text-dim);
+      font-variant-numeric: tabular-nums;
+      padding-top: 2px;
+    }
+    .event-id span { color: var(--accent); }
+
+    .event-body {}
+    .event-customer {
+      font-size: 13px;
+      font-weight: 500;
+      color: var(--text);
+      margin-bottom: 2px;
+      font-family: 'IBM Plex Sans', sans-serif;
+    }
+    .event-product {
+      font-size: 11px;
+      color: var(--text-dim);
+      margin-bottom: 4px;
+    }
+    .event-diff {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 11px;
+    }
+    .status-chip {
+      padding: 2px 8px;
+      border-radius: 2px;
+      font-size: 10px;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      font-weight: 500;
+    }
+    .status-pending   { background: var(--amber-dim);  color: var(--amber);  }
+    .status-shipped   { background: rgba(179,136,255,0.1); color: var(--purple); }
+    .status-delivered { background: var(--green-dim);  color: var(--green);  }
+
+    .arrow { color: var(--text-muted); }
+
+    .event-meta {
+      text-align: right;
+    }
+    .event-time {
+      font-size: 10px;
+      color: var(--text-dim);
+      font-variant-numeric: tabular-nums;
+      white-space: nowrap;
+    }
+    .event-ago {
+      font-size: 10px;
+      color: var(--text-muted);
+    }
+
+    /* ── Empty / connecting state ─────────────────────── */
+    #empty-state {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      height: 100%;
+      gap: 16px;
+      color: var(--text-muted);
+    }
+    .empty-icon { font-size: 48px; opacity: 0.3; }
+    .empty-text { font-size: 12px; letter-spacing: 0.08em; }
+
+    /* ── Scrollbar ────────────────────────────────────── */
+    ::-webkit-scrollbar { width: 4px; }
+    ::-webkit-scrollbar-track { background: transparent; }
+    ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
+    ::-webkit-scrollbar-thumb:hover { background: var(--text-dim); }
+  </style>
+</head>
+<body>
+
+<div class="shell">
+
+  <!-- ── HEADER ── -->
+  <header>
+    <div class="brand">
+      <div class="brand-icon">⬡</div>
+      <div>
+        <div class="brand-name">OrderStream</div>
+        <div class="brand-sub">Real-Time CDC Dashboard</div>
+      </div>
+    </div>
+    <div class="header-right">
+      <div class="conn-badge connecting" id="conn-badge">
+        <div class="conn-dot"></div>
+        <span id="conn-label">CONNECTING</span>
+      </div>
+      <div class="clock" id="clock">--:--:--</div>
+    </div>
+  </header>
+
+  <!-- ── SIDEBAR ── -->
+  <aside>
+
+    <div class="sidebar-section">
+      <div class="section-label">Metrics</div>
+      <div class="stats-grid">
+        <div class="stat-card">
+          <div class="stat-val stat-total"  id="stat-total">0</div>
+          <div class="stat-label">Total Events</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-val stat-pending" id="stat-pending">0</div>
+          <div class="stat-label">Pending</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-val stat-shipped" id="stat-shipped">0</div>
+          <div class="stat-label">Shipped</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-val stat-delivered" id="stat-delivered">0</div>
+          <div class="stat-label">Delivered</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="sidebar-section">
+      <div class="section-label">Filter by operation</div>
+      <div class="filter-group">
+        <button class="filter-btn active" data-op="ALL">
+          <span>ALL OPERATIONS</span>
+          <span id="count-ALL">0</span>
+        </button>
+        <button class="filter-btn" data-op="INSERT">
+          <span>INSERT</span>
+          <span id="count-INSERT">0</span>
+        </button>
+        <button class="filter-btn" data-op="UPDATE">
+          <span>UPDATE</span>
+          <span id="count-UPDATE">0</span>
+        </button>
+        <button class="filter-btn" data-op="DELETE">
+          <span>DELETE</span>
+          <span id="count-DELETE">0</span>
+        </button>
+        <button class="filter-btn" data-op="SNAPSHOT">
+          <span>SNAPSHOT</span>
+          <span id="count-SNAPSHOT">0</span>
+        </button>
+      </div>
+    </div>
+
+    <div class="sidebar-section">
+      <div class="section-label">Connection</div>
+      <div class="instance-info">
+        <div class="info-row">
+          <span class="info-key">Instance</span>
+          <span class="info-val" id="info-instance">—</span>
+        </div>
+        <div class="info-row">
+          <span class="info-key">Socket ID</span>
+          <span class="info-val" id="info-socket">—</span>
+        </div>
+        <div class="info-row">
+          <span class="info-key">Latency</span>
+          <span class="info-val" id="info-latency">—</span>
+        </div>
+        <div class="info-row">
+          <span class="info-key">Transport</span>
+          <span class="info-val" id="info-transport">—</span>
+        </div>
+      </div>
+    </div>
+
+  </aside>
+
+  <!-- ── MAIN ── -->
+  <main>
+    <div class="main-toolbar">
+      <div class="toolbar-title">
+        Live Event Stream — <span id="event-count">0</span> events received
+      </div>
+      <div class="toolbar-actions">
+        <button class="btn" id="pause-btn">⏸ PAUSE</button>
+        <button class="btn danger" id="clear-btn">✕ CLEAR</button>
+      </div>
+    </div>
+
+    <div id="events-log">
+      <div id="empty-state">
+        <div class="empty-icon">◈</div>
+        <div class="empty-text">Awaiting database events…</div>
+        <div class="empty-text" style="font-size:10px;opacity:0.6;">
+          INSERT, UPDATE, or DELETE a row in <strong>orders</strong> to see live changes
+        </div>
+      </div>
+    </div>
+  </main>
+
+</div>
+
+<script>
+  // ── Config ────────────────────────────────────────────────────
+  const SERVER_URL = window.location.origin;
+  const MAX_EVENTS = 200;
+
+  // ── State ──────────────────────────────────────────────────────
+  const state = {
+    events:      [],
+    opCounts:    { ALL: 0, INSERT: 0, UPDATE: 0, DELETE: 0, SNAPSHOT: 0 },
+    statusCounts:{ pending: 0, shipped: 0, delivered: 0 },
+    filter:      "ALL",
+    paused:      false,
+  };
+
+  // ── DOM refs ──────────────────────────────────────────────────
+  const $log       = document.getElementById("events-log");
+  const $empty     = document.getElementById("empty-state");
+  const $connBadge = document.getElementById("conn-badge");
+  const $connLabel = document.getElementById("conn-label");
+  const $evCount   = document.getElementById("event-count");
+  const $clock     = document.getElementById("clock");
+
+  // ── Clock ──────────────────────────────────────────────────────
+  function updateClock() {
+    const now = new Date();
+    $clock.textContent = now.toTimeString().slice(0, 8);
+  }
+  updateClock();
+  setInterval(updateClock, 1000);
+
+  // ── Connection badge ───────────────────────────────────────────
+  function setConnState(s) {
+    $connBadge.className = `conn-badge ${s}`;
+    $connLabel.textContent = s.toUpperCase();
+  }
+
+  // ── Format helpers ─────────────────────────────────────────────
+  function fmtTime(iso) {
+    const d = new Date(iso);
+    return d.toTimeString().slice(0, 8);
+  }
+  function fmtAgo(iso) {
+    const secs = Math.round((Date.now() - new Date(iso)) / 1000);
+    if (secs < 60)  return `${secs}s ago`;
+    if (secs < 3600) return `${Math.floor(secs/60)}m ago`;
+    return `${Math.floor(secs/3600)}h ago`;
+  }
+  function statusChip(s) {
+    return s ? `<span class="status-chip status-${s}">${s}</span>` : "";
+  }
+
+  // ── Render one event card ──────────────────────────────────────
+  function renderCard(ev) {
+    const { operation, order, before, timestamp } = ev;
+    const isUpdate  = operation === "UPDATE" && before;
+    const isDelete  = operation === "DELETE";
+    const row       = order || before;
+
+    let diffHtml = "";
+    if (isUpdate && before.status !== order.status) {
+      diffHtml = `${statusChip(before.status)} <span class="arrow">→</span> ${statusChip(order.status)}`;
+    } else if (row?.status) {
+      diffHtml = statusChip(row.status);
+    }
+
+    const card = document.createElement("div");
+    card.className  = `event-card new-flash`;
+    card.dataset.op = operation;
+    card.innerHTML  = `
+      <div>
+        <div class="op-badge op-${operation}">${operation}</div>
+      </div>
+      <div class="event-id">
+        <span>#${row?.id ?? "?"}</span>
+      </div>
+      <div class="event-body">
+        <div class="event-customer">${escHtml(row?.customer_name ?? "—")}</div>
+        <div class="event-product">${escHtml(row?.product_name ?? "—")}</div>
+        <div class="event-diff">${diffHtml}</div>
+      </div>
+      <div class="event-meta">
+        <div class="event-time">${fmtTime(timestamp)}</div>
+        <div class="event-ago">${fmtAgo(timestamp)}</div>
+      </div>
+    `;
+    return card;
+  }
+
+  function escHtml(s) {
+    return String(s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");
+  }
+
+  // ── Apply filter ───────────────────────────────────────────────
+  function applyFilter(op) {
+    document.querySelectorAll("[data-op].filter-btn").forEach(b => {
+      b.classList.toggle("active", b.dataset.op === op);
+    });
+    document.querySelectorAll(".event-card").forEach(c => {
+      c.style.display = (op === "ALL" || c.dataset.op === op) ? "" : "none";
+    });
+  }
+
+  // ── Handle incoming event ──────────────────────────────────────
+  function handleEvent(ev) {
+    if (state.paused) return;
+
+    state.events.unshift(ev);
+    if (state.events.length > MAX_EVENTS) state.events.pop();
+
+    // Update counts
+    state.opCounts.ALL++;
+    state.opCounts[ev.operation] = (state.opCounts[ev.operation] || 0) + 1;
+
+    const status = ev.order?.status || ev.before?.status;
+    if (status && status in state.statusCounts) state.statusCounts[status]++;
+
+    // Re-render counts
+    document.getElementById("count-ALL").textContent     = state.opCounts.ALL;
+    document.getElementById("count-INSERT").textContent  = state.opCounts.INSERT || 0;
+    document.getElementById("count-UPDATE").textContent  = state.opCounts.UPDATE || 0;
+    document.getElementById("count-DELETE").textContent  = state.opCounts.DELETE || 0;
+    document.getElementById("count-SNAPSHOT").textContent= state.opCounts.SNAPSHOT || 0;
+    document.getElementById("stat-total").textContent    = state.opCounts.ALL;
+    document.getElementById("stat-pending").textContent  = state.statusCounts.pending;
+    document.getElementById("stat-shipped").textContent  = state.statusCounts.shipped;
+    document.getElementById("stat-delivered").textContent= state.statusCounts.delivered;
+    $evCount.textContent = state.opCounts.ALL;
+
+    // Render card
+    $empty.style.display = "none";
+    const card = renderCard(ev);
+    if (state.filter !== "ALL" && ev.operation !== state.filter) {
+      card.style.display = "none";
+    }
+    $log.prepend(card);
+
+    // Trim DOM
+    const cards = $log.querySelectorAll(".event-card");
+    if (cards.length > MAX_EVENTS) cards[cards.length - 1].remove();
+  }
+
+  // ── Socket.IO connection ───────────────────────────────────────
+  const socket = io(SERVER_URL, {
+    transports: ["websocket", "polling"],
+    reconnectionDelay: 1000,
+    reconnectionDelayMax: 5000,
+  });
+
+  socket.on("connect", () => {
+    setConnState("connected");
+    document.getElementById("info-socket").textContent =
+      socket.id.slice(0, 8) + "…";
+    document.getElementById("info-transport").textContent =
+      socket.io.engine.transport.name.toUpperCase();
+
+    // Latency ping
+    const t0 = Date.now();
+    socket.emit("ping_custom");
+    setTimeout(() => {
+      document.getElementById("info-latency").textContent =
+        `${Date.now() - t0} ms`;
+    }, 300);
+  });
+
+  socket.on("connected", ({ instanceId }) => {
+    document.getElementById("info-instance").textContent = instanceId;
+  });
+
+  socket.on("disconnect", () => setConnState("disconnected"));
+  socket.on("connect_error", () => setConnState("disconnected"));
+  socket.io.on("reconnect_attempt", () => setConnState("connecting"));
+
+  socket.on("order:change", (event) => {
+    handleEvent(event);
+  });
+
+  // ── Toolbar buttons ───────────────────────────────────────────
+  document.getElementById("pause-btn").addEventListener("click", function() {
+    state.paused = !state.paused;
+    this.textContent = state.paused ? "▶ RESUME" : "⏸ PAUSE";
+  });
+
+  document.getElementById("clear-btn").addEventListener("click", () => {
+    document.querySelectorAll(".event-card").forEach(c => c.remove());
+    $empty.style.display = "";
+    state.events = [];
+    state.opCounts = { ALL:0, INSERT:0, UPDATE:0, DELETE:0, SNAPSHOT:0 };
+    state.statusCounts = { pending:0, shipped:0, delivered:0 };
+    ["ALL","INSERT","UPDATE","DELETE","SNAPSHOT"].forEach(op => {
+      document.getElementById(`count-${op}`).textContent = 0;
+    });
+    ["total","pending","shipped","delivered"].forEach(k => {
+      document.getElementById(`stat-${k}`).textContent = 0;
+    });
+    $evCount.textContent = 0;
+  });
+
+  // ── Filter buttons ────────────────────────────────────────────
+  document.querySelectorAll("[data-op].filter-btn").forEach(btn => {
+    btn.addEventListener("click", () => {
+      state.filter = btn.dataset.op;
+      applyFilter(state.filter);
+    });
+  });
+
+  // ── Refresh ago times ─────────────────────────────────────────
+  setInterval(() => {
+    document.querySelectorAll(".event-card").forEach((card, i) => {
+      const ev = state.events[i];
+      if (!ev) return;
+      const ago = card.querySelector(".event-ago");
+      if (ago) ago.textContent = fmtAgo(ev.timestamp);
+    });
+  }, 15_000);
+</script>
+</body>
+</html>

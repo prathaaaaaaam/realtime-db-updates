@@ -1,0 +1,13 @@
+{
+  "name": "orders-cli-client",
+  "version": "1.0.0",
+  "description": "CLI client for the Orders real-time gateway",
+  "main": "cli-client.js",
+  "scripts": {
+    "start": "node cli-client.js",
+    "watch": "node cli-client.js --url http://localhost:80"
+  },
+  "dependencies": {
+    "socket.io-client": "^4.7.2"
+  }
+}

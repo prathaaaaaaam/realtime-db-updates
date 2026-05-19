@@ -1,0 +1,5 @@
+node_modules
+*.log
+.env
+postgres_data
+.DS_Store
