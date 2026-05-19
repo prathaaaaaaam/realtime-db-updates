@@ -13,7 +13,7 @@
 │                                                                         │
 │  SQL Client ──► PostgreSQL (WAL: logical) ──► Debezium Connect          │
 │                       ▲                            │                    │
-│               orders table                         │ CDC events          │
+│               orders table                         │ CDC events         │
 │               + publication                        ▼                    │
 │                                            Apache Kafka                 │
 │                                      topic: dbserver1.public.orders     │
@@ -25,14 +25,14 @@
 │                          GATEWAY LAYER                                  │
 │                                                                         │
 │          ┌──────────────────┐    Redis pub/sub    ┌──────────────────┐  │
-│          │  Node.js :3000   │◄──────────────────►│  Node.js :3000   │  │
+│          │  Node.js :3000   │◄──────────────────►│  Node.js :3000   │   │
 │          │  (backend-1)     │   @socket.io/redis  │  (backend-2)     │  │
 │          └──────────────────┘       adapter       └──────────────────┘  │
 │                   ▲                                        ▲            │
 │                   └──────────────┬─────────────────────────┘            │
 │                                  │                                      │
 │                          NGINX load balancer                            │
-│                         (least_conn + WS upgrade)                      │
+│                         (least_conn + WS upgrade)                       │
 └─────────────────────────────────────────────────────────────────────────┘
                                    │
                     ┌──────────────┼──────────────┐
