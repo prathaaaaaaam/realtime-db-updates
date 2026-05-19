@@ -1,13 +1,5 @@
 #!/usr/bin/env node
-/**
- * cli-client.js — Terminal-based real-time orders monitor
- *
- * Usage:
- *   node cli-client.js [--url http://localhost:80] [--filter UPDATE]
- *
- * Connects to the Socket.IO gateway and pretty-prints every
- * order:change event to stdout.
- */
+
 
 const { io } = require("socket.io-client");
 
@@ -21,7 +13,7 @@ const SERVER_URL    = getArg("--url",    "http://localhost:80");
 const FILTER_OP     = getArg("--filter", "ALL").toUpperCase();
 const FILTER_STATUS = getArg("--status", "ALL").toLowerCase();
 
-// ── ANSI colours ──────────────────────────────────────────────
+
 const C = {
   reset:  "\x1b[0m",
   dim:    "\x1b[2m",
@@ -60,7 +52,7 @@ function printBanner() {
 function printEvent(ev) {
   const { operation, order, before, timestamp } = ev;
 
-  // Apply filters
+
   if (FILTER_OP !== "ALL" && operation !== FILTER_OP) return;
   const row = order || before;
   if (FILTER_STATUS !== "all" && row?.status !== FILTER_STATUS) return;
@@ -73,7 +65,7 @@ function printEvent(ev) {
     status === "delivered" ? `${C.green}delivered${C.reset}` :
     status;
 
-  // Show status diff for UPDATEs
+
   const statusDisplay =
     operation === "UPDATE" && before?.status && before.status !== order?.status
       ? `${C.grey}${before.status}${C.reset} → ${statusLabel}`
@@ -88,7 +80,7 @@ function printEvent(ev) {
   console.log(`  ${C.dim}${time}${C.reset}  ${opStr}${idStr}${custStr}${prodStr}${statusDisplay}`);
 }
 
-// ── Connect ───────────────────────────────────────────────────
+
 printBanner();
 
 const socket = io(SERVER_URL, {
