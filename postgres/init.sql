@@ -1,7 +1,4 @@
--- ============================================================
--- Orders DB Initialization
--- Creates the orders table and a replication publication
--- ============================================================
+
 
 CREATE TABLE IF NOT EXISTS orders (
     id            SERIAL PRIMARY KEY,
@@ -12,7 +9,7 @@ CREATE TABLE IF NOT EXISTS orders (
     updated_at    TIMESTAMPTZ   NOT NULL DEFAULT NOW()
 );
 
--- Trigger: keep updated_at fresh on every UPDATE
+
 CREATE OR REPLACE FUNCTION set_updated_at()
 RETURNS TRIGGER AS $$
 BEGIN
@@ -26,12 +23,10 @@ CREATE TRIGGER orders_set_updated_at
     FOR EACH ROW
     EXECUTE FUNCTION set_updated_at();
 
--- Logical replication publication for Debezium CDC
--- Only publishes INSERT, UPDATE, DELETE on the orders table
 CREATE PUBLICATION orders_publication FOR TABLE orders
     WITH (publish = 'insert,update,delete');
 
--- ─── Seed data (optional demo rows) ──────────────────────────
+
 INSERT INTO orders (customer_name, product_name, status) VALUES
     ('Alice Johnson',  'Wireless Headphones', 'pending'),
     ('Bob Martinez',   'Mechanical Keyboard',  'shipped'),
