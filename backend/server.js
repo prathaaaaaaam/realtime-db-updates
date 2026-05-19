@@ -8,12 +8,12 @@ const SocketManager = require("./socket-manager");
 const PORT        = parseInt(process.env.PORT || "3000", 10);
 const INSTANCE_ID = process.env.INSTANCE_ID || "local";
 
-// ─── App bootstrap ───────────────────────────────────────────
+
 
 const app    = express();
 const server = http.createServer(app);
 
-// ─── REST endpoints ──────────────────────────────────────────
+
 
 app.get("/health", (_req, res) => {
   res.json({
@@ -37,7 +37,7 @@ app.get("/", (_req, res) => {
   });
 });
 
-// ─── Main ────────────────────────────────────────────────────
+
 
 async function main() {
   console.log(`\n🚀  Orders Gateway [${INSTANCE_ID}] starting…\n`);
@@ -55,12 +55,12 @@ async function main() {
 
   await kafkaConsumer.connect();
 
-  // 3. Start HTTP + WS server
+
   server.listen(PORT, () => {
     console.log(`✅  Listening on port ${PORT}  [instance: ${INSTANCE_ID}]`);
   });
 
-  // ─── Graceful shutdown ──────────────────────────────────────
+
   const shutdown = async (signal) => {
     console.log(`\n⚠️   Received ${signal} — shutting down gracefully…`);
     server.close(async () => {
@@ -68,7 +68,7 @@ async function main() {
       console.log("✅  Clean shutdown complete");
       process.exit(0);
     });
-    // Force exit after 10 s
+
     setTimeout(() => process.exit(1), 10_000);
   };
 
